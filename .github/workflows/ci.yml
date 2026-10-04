@@ -1,0 +1,181 @@
+name: Run Robot Framework Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 17 * * *'
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: [1, 2, 3, 4, 5]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install additional dependencies if needed
+          pip install -r requirements.txt
+
+      - name: Remove stale pre-installed chromedriver
+        run: |
+          # GitHub-hosted macOS runners ship a Homebrew-installed chromedriver
+          # at /usr/local/bin/chromedriver that goes stale as Chrome
+          # auto-updates on the image, and it shadows Selenium Manager's own
+          # version resolution (Selenium looks at PATH first). Selenium 4.6+
+          # (see requirements.txt) bundles Selenium Manager, which downloads
+          # a chromedriver matching whatever Chrome version is actually
+          # installed - but only if there isn't already one earlier on PATH.
+          if command -v chromedriver >/dev/null 2>&1; then
+              echo "Removing stale chromedriver: $(command -v chromedriver) ($(chromedriver --version 2>/dev/null || true))"
+              sudo rm -f "$(command -v chromedriver)"
+          else
+              echo "No pre-installed chromedriver found on PATH."
+          fi
+
+      - name: Select test files for this batch
+        env:
+          BATCH_INDEX: ${{ matrix.batch }}
+          BATCH_COUNT: 5
+        run: |
+          python3 - <<'PYEOF'
+          import glob
+          import os
+
+          files = sorted(glob.glob('[0-9][0-9][0-9]_*.robot'))
+          total = len(files)
+          batch_count = int(os.environ['BATCH_COUNT'])
+          batch_index = int(os.environ['BATCH_INDEX']) - 1  # 0-indexed
+
+          base = total // batch_count
+          remainder = total % batch_count
+          sizes = [base + (1 if i < remainder else 0) for i in range(batch_count)]
+          start = sum(sizes[:batch_index])
+          end = start + sizes[batch_index]
+          selected = files[start:end]
+
+          print(f"Batch {batch_index + 1}/{batch_count}: {len(selected)} of {total} file(s)")
+          for f in selected:
+              print(f"  {f}")
+
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('TEST_FILES=' + ' '.join(selected) + '\n')
+          PYEOF
+
+      - name: Run Robot Framework tests
+        env:
+          WORK_TOKEN: ${{ secrets.WORKFLOW_TEST }}
+          TZ: Asia/Ho_Chi_Minh
+        run: |
+          if [ -z "$TEST_FILES" ]; then
+              echo "No test files assigned to this batch. Skipping."
+              mkdir -p results
+              exit 0
+          fi
+
+          # Explicit set +e / capture-$?/ set -e around every robot/rebot call
+          # rather than relying on "if ! CMD; then" or a trailing "|| true" to
+          # neutralize its exit code: GitHub Actions runs "run:" blocks under
+          # "bash -eo pipefail" by default, and Robot Framework/rebot use
+          # reserved non-zero exit codes for their own conditions (e.g. 252 for
+          # "no tests found"/invalid data) - letting any of those propagate
+          # unprotected (as the old unguarded "rebot --merge" call did) aborts
+          # the whole script right there under errexit, which used to surface
+          # as a failed step despite "continue-on-error: true" softening the
+          # job-level outcome. This version can't do that: every robot/rebot
+          # invocation's exit code is captured and handled explicitly, and the
+          # script always finishes with its own "exit 0" - continue-on-error
+          # is kept below only as a defensive backstop, not the primary
+          # mechanism.
+          set +e
+          robot --outputdir results --exclude skip $TEST_FILES
+          ROBOT_EXIT=$?
+          set -e
+
+          if [ "$ROBOT_EXIT" -ne 0 ]; then
+              echo "Robot Framework tests failed (exit $ROBOT_EXIT). Rerunning failed tests..."
+              if [ -f results/output.xml ]; then
+                  set +e
+                  robot --rerunfailed results/output.xml --outputdir results_rerun $TEST_FILES
+                  set -e
+                  if [ -f results_rerun/output.xml ]; then
+                      set +e
+                      rebot --output results/output.xml --log results/log.html --report results/report.html --merge results/output.xml results_rerun/output.xml
+                      set -e
+                  else
+                      echo "No output.xml file found from rerun. Skipping merge."
+                  fi
+              else
+                  echo "No output.xml file found. Cannot rerun failed tests."
+              fi
+          fi
+
+          echo "Script execution completed"
+          exit 0
+        continue-on-error: true
+
+      - name: Publish results summary
+        if: always()
+        env:
+          BATCH_INDEX: ${{ matrix.batch }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import xml.etree.ElementTree as ET
+
+          xml_path = 'results/output.xml'
+          lines = [f"## Batch {os.environ['BATCH_INDEX']} results"]
+
+          if not os.path.exists(xml_path):
+              lines.append('')
+              lines.append('_No output.xml was produced (no test files assigned to this batch, or Robot Framework failed to start)._')
+          else:
+              tree = ET.parse(xml_path)
+              root = tree.getroot()
+              stat = root.find('./statistics/total/stat')
+              passed = int(stat.get('pass', 0)) if stat is not None else 0
+              failed = int(stat.get('fail', 0)) if stat is not None else 0
+              skipped = int(stat.get('skip', 0)) if stat is not None else 0
+
+              icon = '✅' if failed == 0 else '❌'
+              lines.append('')
+              lines.append(f"{icon} **{passed} passed, {failed} failed, {skipped} skipped**")
+
+              # Only direct <test> children count - the outer wrapper <suite> that
+              # groups every selected .robot file only has <suite> children, so
+              # this can't double-count a file's tests via its ancestor suite.
+              failed_names = []
+              for suite in root.iter('suite'):
+                  suite_name = suite.get('name')
+                  for test in suite.findall('test'):
+                      status = test.find('status')
+                      if status is not None and status.get('status') == 'FAIL':
+                          failed_names.append(f"{suite_name} :: {test.get('name')}")
+
+              if failed_names:
+                  lines.append('')
+                  lines.append('### Failed tests')
+                  for name in failed_names:
+                      lines.append(f'- {name}')
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n')
+          PYEOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: ./results
+          name: robot-test-results-batch-${{ matrix.batch }}
+          retention-days: 3
