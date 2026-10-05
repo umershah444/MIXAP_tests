@@ -5,6 +5,7 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Tags    safari-unverified
 
 *** Test Cases ***
 Selecting Pair Association for the first time starts its onboarding tour and walks through it
@@ -33,13 +34,13 @@ Selecting Pair Association for the first time starts its onboarding tour and wal
     Wait Until Element Is Visible    xpath=(//div[contains(@class, 'mk-upload__marker-slot')]//span[contains(@class, 'ant-upload-btn')])[1]    15s
     Click Element    xpath=(//div[contains(@class, 'mk-upload__marker-slot')]//span[contains(@class, 'ant-upload-btn')])[1]
     Wait Until Page Contains Element    xpath=//input[@type='file']    5s
-    Choose File    xpath=//input[@type='file']    ${EXECDIR}/assets/fakecamfeed_cortez.png
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/fakecamfeed_cortez.png
     Onboarding Popover Should Have Advanced From    ${progress}
     ${progress2}=    Get Onboarding Popover Progress
     Wait Until Element Is Visible    xpath=(//div[contains(@class, 'mk-upload__marker-slot')]//span[contains(@class, 'ant-upload-btn')])[1]    15s
     Click Element    xpath=(//div[contains(@class, 'mk-upload__marker-slot')]//span[contains(@class, 'ant-upload-btn')])[1]
     Wait Until Page Contains Element    xpath=//input[@type='file']    5s
-    Choose File    xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
     Onboarding Popover Should Have Advanced From Or Click Next    ${progress2}
     Next button
     Sleep    2s

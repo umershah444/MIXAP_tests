@@ -2,6 +2,14 @@ name: Run Robot Framework Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to run the suite on. Safari runs pass --variable BROWSER:safari --exclude chrome-only (see SAFARI_COMPATIBILITY.md).'
+        type: choice
+        options:
+          - chrome
+          - safari
+        default: chrome
   schedule:
     - cron: '0 17 * * *'
 
@@ -12,6 +20,12 @@ jobs:
       fail-fast: false
       matrix:
         batch: [1, 2, 3, 4, 5]
+        # The daily schedule always runs Chrome only; Safari runs only on a
+        # manual workflow_dispatch with browser=safari, so it doesn't double
+        # the daily load on the shared preprod server. Each matrix job is its
+        # own macOS VM, so Safari's one-WebDriver-session-per-machine limit
+        # still allows the 5 batches to run in parallel here.
+        browser: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.browser) || '["chrome"]') }}
 
     steps:
       - name: Checkout repository
@@ -29,6 +43,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Remove stale pre-installed chromedriver
+        if: matrix.browser == 'chrome'
         run: |
           # GitHub-hosted macOS runners ship a Homebrew-installed chromedriver
           # at /usr/local/bin/chromedriver that goes stale as Chrome
@@ -43,6 +58,15 @@ jobs:
           else
               echo "No pre-installed chromedriver found on PATH."
           fi
+
+      - name: Enable safaridriver
+        if: matrix.browser == 'safari'
+        run: |
+          # Turns on Safari's WebDriver support (the equivalent of Develop >
+          # Allow Remote Automation) - required once per machine before
+          # safaridriver will accept a session.
+          sudo safaridriver --enable
+          safaridriver --version
 
       - name: Select test files for this batch
         env:
@@ -77,6 +101,7 @@ jobs:
         env:
           WORK_TOKEN: ${{ secrets.WORKFLOW_TEST }}
           TZ: Asia/Ho_Chi_Minh
+          BROWSER: ${{ matrix.browser }}
         run: |
           if [ -z "$TEST_FILES" ]; then
               echo "No test files assigned to this batch. Skipping."
@@ -98,8 +123,16 @@ jobs:
           # script always finishes with its own "exit 0" - continue-on-error
           # is kept below only as a defensive backstop, not the primary
           # mechanism.
+          # Chrome runs with no extra arguments (exactly as before). Safari
+          # selects the browser and leaves out the tests tagged chrome-only
+          # (CDP network emulation, two concurrent sessions, camera-only flows).
+          BROWSER_ARGS=""
+          if [ "$BROWSER" = "safari" ]; then
+              BROWSER_ARGS="--variable BROWSER:safari --exclude chrome-only"
+          fi
+
           set +e
-          robot --outputdir results --exclude skip $TEST_FILES
+          robot --outputdir results --exclude skip $BROWSER_ARGS $TEST_FILES
           ROBOT_EXIT=$?
           set -e
 
@@ -107,7 +140,7 @@ jobs:
               echo "Robot Framework tests failed (exit $ROBOT_EXIT). Rerunning failed tests..."
               if [ -f results/output.xml ]; then
                   set +e
-                  robot --rerunfailed results/output.xml --outputdir results_rerun $TEST_FILES
+                  robot --rerunfailed results/output.xml --outputdir results_rerun $BROWSER_ARGS $TEST_FILES
                   set -e
                   if [ -f results_rerun/output.xml ]; then
                       set +e
@@ -129,13 +162,15 @@ jobs:
         if: always()
         env:
           BATCH_INDEX: ${{ matrix.batch }}
+          BROWSER: ${{ matrix.browser }}
         run: |
           python3 - <<'PYEOF'
           import os
           import xml.etree.ElementTree as ET
 
           xml_path = 'results/output.xml'
-          lines = [f"## Batch {os.environ['BATCH_INDEX']} results"]
+          heading = 'Safari batch' if os.environ['BROWSER'] == 'safari' else 'Batch'
+          lines = [f"## {heading} {os.environ['BATCH_INDEX']} results"]
 
           if not os.path.exists(xml_path):
               lines.append('')
@@ -177,5 +212,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: ./results
-          name: robot-test-results-batch-${{ matrix.batch }}
+          name: ${{ matrix.browser == 'safari' && format('robot-test-results-safari-batch-{0}', matrix.batch) || format('robot-test-results-batch-{0}', matrix.batch) }}
           retention-days: 3

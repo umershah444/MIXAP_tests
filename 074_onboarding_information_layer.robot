@@ -5,6 +5,8 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:camera-todo
 
 *** Test Cases ***
 Selecting Information layers for the first time starts its onboarding tour and walks through it

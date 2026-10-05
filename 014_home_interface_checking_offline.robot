@@ -3,6 +3,8 @@ Library    SeleniumLibrary
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:offline-suite
 
 *** Test Cases ***
 open Application

@@ -4,6 +4,8 @@ Library    OperatingSystem
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:offline-suite
 
 *** Test Cases ***
 Create activity with tag
@@ -20,9 +22,7 @@ Edit activity details
 Snap the background
     Next button
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    activity_type=Augmented activity
 
 display activity
     Next button

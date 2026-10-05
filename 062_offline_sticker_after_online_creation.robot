@@ -5,6 +5,8 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:offline-suite
 
 *** Variables ***
 ${run_suffix}    value
@@ -26,9 +28,7 @@ Create activity with sticker while online
     Edit Activity Title    offline sticker activity ${run_suffix}
     Next button
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    Augmented activity
     Sleep    2s
     Next button
     Sleep    2s

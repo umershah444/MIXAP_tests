@@ -1,6 +1,8 @@
 *** Settings ***
 Library    SeleniumLibrary
 Resource       ./ressources.robot
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:offline-suite
 
 *** Test Cases ***
 Open Web Application Offline

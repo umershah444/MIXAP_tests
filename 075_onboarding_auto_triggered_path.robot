@@ -5,6 +5,7 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Tags    safari-unverified
 
 *** Test Cases ***
 Selecting Auto-Triggered path for the first time starts its onboarding tour
@@ -17,7 +18,7 @@ Selecting Auto-Triggered path for the first time starts its onboarding tour
     Sign Up    test_${username}    test_${username}@example.com    password123
     Onboarding Tour Should Not Be Marked Completed    autoTriggeredPath
     Create Path
-    Select Path Type    Auto-Triggered path
+    Select Path Type    Auto-Triggered Path
     Wait For Onboarding Popover
     Click Onboarding Next Button
     Onboarding Tour Should Not Be Active
@@ -33,7 +34,7 @@ Creating a second Auto-Triggered path does not re-trigger the tour once the "see
     Reload Page
     Wait Until Element Is Visible    xpath=//button[text()='New activity']    15s
     Create Path
-    Select Path Type    Auto-Triggered path
+    Select Path Type    Auto-Triggered Path
     Sleep    2s
     Onboarding Tour Should Not Be Active
     Click home button and discard draft

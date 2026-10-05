@@ -6,11 +6,29 @@ Library    Collections
 ${URL}    https://mixap-lium-preprod.univ-lemans.fr/
 ${RELATIVE_VIDEO_PATH}    ./assets/fakecamfeed_cortez.mjpeg
 ${ANIMATED_PATH}    ./assets/animated.gif
+# Browser to run the suite on: "chrome" (default) or "safari". Override with --variable BROWSER:safari.
+# Always read it through "Browser Is Chrome" rather than comparing the string directly.
+${BROWSER}    chrome
+# Marker image uploaded by "Provide Marker Image" on Safari, which has no fake camera: a frame of the same
+# fakecamfeed_cortez feed Chrome's fake camera streams, so marker quality stays comparable.
+${SAFARI_MARKER_IMAGE}    ${EXECDIR}/assets/fakecamfeed_cortez.png
+# Human-readable reason for each "safari-skip:<reason>" test tag, reported by "Skip Chrome-Only Test On Safari".
+# Keep in sync with SKIP_REASONS in tools/safari_compatibility.py.
+&{SAFARI_SKIP_REASONS}
+...    cdp-network=uses Chrome DevTools Protocol network emulation (Go Offline / Set Network Speed)
+...    cdp-state=continues a browser session that an earlier test took offline or throttled via CDP
+...    offline-suite=suite exercises offline behaviour, which needs CDP network emulation
+...    concurrent-browsers=needs two concurrent browser sessions; safaridriver allows only one
+...    microphone=records from the microphone; Safari has no fake microphone
+...    camera-todo=needs a camera snap; the Safari upload sequence for this activity type is not yet determined
+...    camera-detection=asserts marker detection, which needs a live camera feed
+...    onboarding-camera=onboarding tour steps target the camera capture controls
+...    session-of-skipped=continues the browser session of a test that is skipped on Safari
 
 
 *** Keywords ***
 Bypass https alert
-    [Documentation]    passe l'alerte en cas de certificat https invalide
+    [Documentation]    passe l'alerte en cas de certificat https invalide. Chrome-only: "details-button"/"proceed-link" are the ids of Chrome's own certificate interstitial page, which Safari does not have. Currently unused.
     Sleep    2
     Click Element    id=details-button
     Sleep    2
@@ -33,35 +51,76 @@ Set Chrome Options
     Call Method    ${options}    add_argument    --disable-features\=PasswordLeakDetection,LeakDetectionUnauthenticated,PasswordChange
     RETURN    ${options}
 
+Validate Browser Variable
+    [Documentation]    Normalise ${BROWSER} to lower case and fail fast unless it is "chrome" or "safari", so a typo in --variable BROWSER:... stops the run with a clear message instead of silently falling back to a default. Returns the normalised value.
+    ${browser}=    Evaluate    str($BROWSER).strip().lower()
+    IF    $browser not in ('chrome', 'safari')
+        Fail    Unsupported BROWSER '${BROWSER}': use --variable BROWSER:chrome (default) or --variable BROWSER:safari.
+    END
+    Set Global Variable    ${BROWSER}    ${browser}
+    RETURN    ${browser}
+
+Browser Is Chrome
+    [Documentation]    Return ${True} when the suite runs on Chrome (see ${BROWSER}), ${False} on Safari. The single place browser-specific branches test the browser - keywords call this instead of comparing ${BROWSER} themselves.
+    ${browser}=    Validate Browser Variable
+    RETURN    ${{ $browser == 'chrome' }}
+
+Skip Chrome-Only Test On Safari
+    [Documentation]    Used as "Test Setup" by every suite that contains tests tagged "chrome-only". No-op on Chrome. On any other browser, SKIPs a "chrome-only" test with the reason(s) given by its "safari-skip:<reason>" tags (see ${SAFARI_SKIP_REASONS} and SAFARI_COMPATIBILITY.md). Safari runs normally exclude these tests with "--exclude chrome-only"; this makes them report a clear SKIP instead of a confusing FAIL if that flag is forgotten - including the chained tests (e.g. "Select Type - Slow 3G") that never call a CDP keyword themselves but continue a session an earlier test throttled.
+    ${is_chrome}=    Browser Is Chrome
+    IF    ${is_chrome} or 'chrome-only' not in $TEST_TAGS    RETURN
+    ${reasons}=    Create List
+    FOR    ${tag}    IN    @{TEST_TAGS}
+        IF    $tag.startswith('safari-skip:')
+            ${key}=    Evaluate    $tag.split(':', 1)[1]
+            ${reason}=    Get From Dictionary    ${SAFARI_SKIP_REASONS}    ${key}    default=${key}
+            Append To List    ${reasons}    ${reason}
+        END
+    END
+    ${reason_text}=    Evaluate    '; '.join($reasons) or 'tagged chrome-only'
+    Skip    Not supported on ${BROWSER}: ${reason_text}
+
+Open MIXAP Browser
+    [Documentation]    Open ${URL} in the browser selected by ${BROWSER}. Shared by every "Open Web Application*" keyword, which keep their own post-open steps. On Chrome this is exactly the historical behaviour: with ${fake_media} (the default) Chrome gets "Set Chrome Options" (fake camera/mic feed, auto-granted permissions); without it, plain Chrome. On Safari there is no options object and no fake media (see "Provide Marker Image" for how the camera is replaced), and safaridriver allows only ONE WebDriver session per machine, so any session still open (e.g. left behind by a failed test) is closed first - otherwise "Open Browser" itself would fail - and the window is maximized like the Chrome flows do.
+    [Arguments]    ${alias}=${None}    ${fake_media}=${True}
+    ${is_chrome}=    Browser Is Chrome
+    IF    ${is_chrome} and ${fake_media}
+        ${chrome_options}=    Set Chrome Options
+        Open Browser    ${URL}    chrome    options=${chrome_options}    alias=${alias}
+    ELSE IF    ${is_chrome}
+        Open Browser    ${URL}    chrome    alias=${alias}
+    ELSE
+        Close All Browsers
+        Open Browser    ${URL}    safari    alias=${alias}
+        Maximize Browser Window
+    END
+
 Open Web Application
-    [Documentation]    ouvre le site avec le navigateur chrome en suivant les paramètres
-    ${chrome_options}=    Set Chrome Options
+    [Documentation]    ouvre le site avec le navigateur choisi par ${BROWSER} (chrome par défaut, avec flux caméra/micro fictif) après avoir fermé tous les navigateurs ouverts - voir "Open MIXAP Browser"
     Close All Browsers
-    Open Browser    ${URL}    chrome    options=${CHROME_OPTIONS}
-    Title Should Be    MIXAP    timeout 10s
+    Open MIXAP Browser
+    Wait Until Keyword Succeeds    10s    1s    Title Should Be    MIXAP
     Wait Until Element Is Visible    xpath=//button[text()='New activity']
     Suppress All Onboarding Tours
 
 Open Web Application with alias
-    [Documentation]    ouvre le site avec le navigateur chrome en suivant les paramètres et avec un alias en paramètres
+    [Documentation]    ouvre le site avec le navigateur choisi par ${BROWSER} et avec un alias en paramètres - voir "Open MIXAP Browser". Sur Safari, une seule session est possible : les suites qui gardent deux navigateurs ouverts (043, 049, 054) sont donc "chrome-only".
     [Arguments]    ${alias}
-    ${chrome_options}=    Set Chrome Options
-    Open Browser    ${URL}    chrome    options=${CHROME_OPTIONS}    alias=${alias}
-    Title Should Be    MIXAP    timeout 10s
+    Open MIXAP Browser    alias=${alias}
+    Wait Until Keyword Succeeds    10s    1s    Title Should Be    MIXAP
     Wait Until Element Is Visible    xpath=//button[text()='New activity']
     Suppress All Onboarding Tours
 
 Open Web Application without closing
-    [Documentation]    ouvre le site avec le navigateur chrome en suivant les paramètres
-    ${chrome_options}=    Set Chrome Options
-    Open Browser    ${URL}    chrome    options=${CHROME_OPTIONS}
-    Title Should Be    MIXAP    timeout 10s
+    [Documentation]    ouvre le site avec le navigateur choisi par ${BROWSER} sans fermer les navigateurs déjà ouverts (sur Chrome) - voir "Open MIXAP Browser", qui ferme quand même l'éventuelle session restante sur Safari puisqu'une seule session y est possible
+    Open MIXAP Browser
+    Wait Until Keyword Succeeds    10s    1s    Title Should Be    MIXAP
     Wait Until Element Is Visible    xpath=//button[text()='New activity']
     Suppress All Onboarding Tours
 
 Open Web Application Without Fake Media
-    [Documentation]    Open the site with plain Chrome (no fake camera/mic options). Used by tests that only need to confirm the app shell loads and don't drive the camera-dependent activity flows.
-    Open Browser    ${URL}    chrome
+    [Documentation]    Open the site without fake camera/mic options: plain Chrome, or Safari (which never has fake media) - see "Open MIXAP Browser". Used by tests that only need to confirm the app shell loads and don't drive the camera-dependent activity flows.
+    Open MIXAP Browser    fake_media=${False}
     Maximize Browser Window
 
 Create Activity
@@ -77,8 +136,9 @@ Create Path
     Wait Until Element Is Visible    xpath=//div[h3[text()='Free Exploration Path']]
 
 Next button
-    [Documentation]    clic sur le bouton suivant en bas a droite de l'application pour passer a l'étape suivante. Verified live against the app source ("Editor.tsx"): the classes "ant-btn-primary editor__nav-button editor__nav-button--primary" are the real, stable ones - the "css-XXXXXX" hash also present on the element is an Ant Design/emotion runtime style hash that regenerates on every app build/rebuild, so it must never be baked into a xpath "contains()" match (this had gone stale and was breaking the keyword before this fix).
+    [Documentation]    clic sur le bouton suivant en bas a droite de l'application pour passer a l'étape suivante. Verified live against the app source ("Editor.tsx"): the classes "ant-btn-primary editor__nav-button editor__nav-button--primary" are the real, stable ones - the "css-XXXXXX" hash also present on the element is an Ant Design/emotion runtime style hash that regenerates on every app build/rebuild, so it must never be baked into a xpath "contains()" match (this had gone stale and was breaking the keyword before this fix). Also waits for the button to be ENABLED, not just visible: since the preprod app build of 2026-10-02, saving the marker photo starts the marker compilation in the background right away, and during it this same button turns into a disabled "Preparing marker… N%" loading button (~14s locally, longer on slower CI machines). Clicking it then is a silent no-op - the wizard never advances and "Validation button" times out waiting for the marker-features modal (this broke every marker-based test, confirmed live). The generous timeout covers slow machines; when the button is already enabled (every other step) the wait returns immediately.
     Wait Until Element Is Visible    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]    10s
+    Wait Until Element Is Enabled    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]    120s
     Click Element    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]
 
 Snap the background
@@ -95,8 +155,36 @@ Use template image
     [Documentation]    use a template image instead of taking a photo
     Sleep    2s
     Wait Until Element Is Visible    xpath=//span[text()='upload image']
-    Choose File    xpath=//input[@type='file']    ${EXECDIR}/assets/animated.gif
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/animated.gif
     
+Provide Marker Image
+    [Documentation]    Provide the marker (background) image on the marker step of the activity wizard. On Chrome this is exactly the historical camera flow: "Snap the background" (Chrome's fake camera streams assets/fakecamfeed_cortez.y4m), ${settle} of waiting, then "Validate the image". Safari has no fake camera, so there it uploads ${SAFARI_MARKER_IMAGE} instead through the wizard's "upload image" control - the same path "Use template image" takes. The upload path has NO "Validate the image" step: the uploaded image goes straight to compilation, so callers continue with "Next button" / "Validation button" exactly as after the snap (evidenced for "Augmented activity" by 051_empty_animated_augment.robot and for "Search and Find" by "Create failed search and find activity"). For any other ${activity_type} the Safari step sequence has not been determined yet (TODO, see SAFARI_COMPATIBILITY.md), so the test SKIPs rather than guessing.
+    [Arguments]    ${activity_type}    ${settle}=2s
+    ${is_chrome}=    Browser Is Chrome
+    IF    ${is_chrome}
+        Snap the background
+        Sleep    ${settle}
+        Validate the image
+    ELSE IF    $activity_type in ('Augmented activity', 'Search and Find')
+        Sleep    2s
+        Wait Until Element Is Visible    xpath=//span[text()='upload image']
+        Choose File Robust    xpath=//input[@type='file']    ${SAFARI_MARKER_IMAGE}
+    ELSE
+        Skip    Marker image on ${BROWSER}: no fake camera, and the upload sequence for "${activity_type}" has not been determined yet (TODO)
+    END
+
+Choose File Robust
+    [Documentation]    "Choose File" for the app's upload inputs, most of which are Ant Design "Upload" components whose underlying "input[type=file]" is intentionally CSS-hidden (see "Add Audio To Augmentation" / "Add 3D Object To Augmentation"). On Chrome this is exactly a plain "Choose File" - ChromeDriver accepts file paths on hidden inputs. On Safari, safaridriver can reject sending keys to a non-interactable element (ElementNotInteractable), so the input is first made interactable via JavaScript (display, visibility, opacity, and a 1px size if it renders at zero width/height) - it stays a real file input, so the app's own onChange handler still receives the file. UNVERIFIED on Safari: not yet executed there (tests using it are tagged "safari-unverified").
+    [Arguments]    ${locator}    ${file_path}
+    ${is_chrome}=    Browser Is Chrome
+    IF    ${is_chrome}
+        Choose File    ${locator}    ${file_path}
+    ELSE
+        ${input}=    Get WebElement    ${locator}
+        Execute Javascript    var el = arguments[0]; el.style.display = 'block'; el.style.visibility = 'visible'; el.style.opacity = '1'; if (el.offsetWidth === 0) { el.style.width = '1px'; } if (el.offsetHeight === 0) { el.style.height = '1px'; }    ARGUMENTS    ${input}
+        Choose File    ${input}    ${file_path}
+    END
+
 Select Activity Type
     [Documentation]    Select the activity type using a parameter
     [Arguments]    ${activity_type}
@@ -175,7 +263,7 @@ Add Image To Augmentation
     Click Element    xpath=//button[@title='Image']
     Wait Until Element Is Visible    xpath=//h5[contains(text(), 'Click to edit...')]    15s
     Click Element    xpath=//h5[contains(text(), 'Click to edit...')]
-    Choose File    xpath=//input[@type='file']    ${file_path}
+    Choose File Robust    xpath=//input[@type='file']    ${file_path}
     IF    ${click_next}
         Next button
     END
@@ -187,7 +275,7 @@ Add Video To Augmentation
     Click Element    xpath=//button[@title='Video']
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-typography') and contains(., 'Click to edit...')]    15s
     Click Element    xpath=//div[contains(@class, 'ant-typography') and contains(., 'Click to edit...')]
-    Choose File    xpath=//input[@type='file']    ${file_path}
+    Choose File Robust    xpath=//input[@type='file']    ${file_path}
     Next button
 
 Add Sticker To Augmentation
@@ -199,11 +287,11 @@ Add Sticker To Augmentation
     Next button
 
 Add Audio To Augmentation
-    [Documentation]    Add an audio overlay to the currently open augmentation, uploading a local sound file. Verified live against the app source ("PaletteButtonsBar.tsx" / "AAudio.tsx"): clicking the "Audio" toolbar button no longer opens an upload modal - it now behaves like "Add Sheet To Augmentation"'s Note tool, immediately placing an empty AAudio aura on the canvas whose controls popover (containing the file-upload button) is open by default ("visibleControls" state defaults to true in AAudio.tsx). The underlying "input[type=file]" (rendered by Ant Design's "Upload" component) is intentionally CSS-hidden and never becomes "visible" - confirmed live the popover's visible upload/mic/delete icons render immediately while the input stays hidden - so this waits for it to exist in the DOM ("Wait Until Page Contains Element"), not to become visible, before "Choose File" (which works on hidden file inputs). There is no separate "confirm/validate" step - selecting the file alone updates the aura's content via the form's onChange.
+    [Documentation]    Add an audio overlay to the currently open augmentation, uploading a local sound file. Verified live against the app source ("PaletteButtonsBar.tsx" / "AAudio.tsx"): clicking the "Audio" toolbar button no longer opens an upload modal - it now behaves like "Add Sheet To Augmentation"'s Note tool, immediately placing an empty AAudio aura on the canvas whose controls popover (containing the file-upload button) is open by default ("visibleControls" state defaults to true in AAudio.tsx). The underlying "input[type=file]" (rendered by Ant Design's "Upload" component) is intentionally CSS-hidden and never becomes "visible" - confirmed live the popover's visible upload/mic/delete icons render immediately while the input stays hidden - so this waits for it to exist in the DOM ("Wait Until Page Contains Element"), not to become visible, before "Choose File Robust" (plain "Choose File" on Chrome, which works on hidden file inputs; on Safari it unhides the input first). There is no separate "confirm/validate" step - selecting the file alone updates the aura's content via the form's onChange.
     Wait Until Element Is Visible    xpath=//button[@title='Audio']    15s
     Click Element    xpath=//button[@title='Audio']
     Wait Until Page Contains Element    xpath=//input[@type='file']    15s
-    Choose File    xpath=//input[@type='file']    ${EXECDIR}/assets/1645.mp3
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/1645.mp3
     Sleep    2s
     Next button
 
@@ -222,12 +310,12 @@ Add Sheet To Augmentation
     Next button
 
 Add 3D Object To Augmentation
-    [Documentation]    Add a 3D object overlay to the currently open augmentation, using the provided model file. Set ${click_next}=${False} to upload without advancing, e.g. when uploading several formats in a row and only the last one should proceed. Verified live against the app source ("A3d.tsx"): the "Click to edit..." text is just placeholder content shown inside the canvas element - clicking it used to work but now gets intercepted by the aura's own controls popover, which is open by default and already exposes the file-upload input directly, so this goes straight to "Choose File" without clicking the placeholder (same fix as "Add Audio To Augmentation"). That underlying "input[type=file]" is intentionally CSS-hidden by Ant Design's "Upload" component and never becomes "visible", so this waits for it to exist in the DOM rather than to become visible.
+    [Documentation]    Add a 3D object overlay to the currently open augmentation, using the provided model file. Set ${click_next}=${False} to upload without advancing, e.g. when uploading several formats in a row and only the last one should proceed. Verified live against the app source ("A3d.tsx"): the "Click to edit..." text is just placeholder content shown inside the canvas element - clicking it used to work but now gets intercepted by the aura's own controls popover, which is open by default and already exposes the file-upload input directly, so this goes straight to "Choose File Robust" without clicking the placeholder (same fix as "Add Audio To Augmentation"). That underlying "input[type=file]" is intentionally CSS-hidden by Ant Design's "Upload" component and never becomes "visible", so this waits for it to exist in the DOM rather than to become visible - and uploads through "Choose File Robust", which unhides it first on Safari.
     [Arguments]    ${file_path}    ${click_next}=${True}
     Wait Until Element Is Visible    xpath=//button[@title='3D']    15s
     Click Element    xpath=//button[@title='3D']
     Wait Until Page Contains Element    xpath=//input[@type='file']    15s
-    Choose File    xpath=//input[@type='file']    ${file_path}
+    Choose File Robust    xpath=//input[@type='file']    ${file_path}
     Sleep    2
     IF    ${click_next}
         Next button
@@ -384,9 +472,7 @@ Create empty augmented activity
     Edit Activity Title    ${title}
     Next button
     Sleep    2s
-    Snap the background
-    Sleep    5s
-    Validate the image
+    Provide Marker Image    Augmented activity    settle=5s
     Sleep    2s
     Next button
     Sleep    2s
@@ -408,9 +494,7 @@ Create empty validation
     Edit Activity Instructions    ${instructions}
     Next button
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    Search and Find
     Sleep    2s
     Next button
     Sleep    2s
@@ -422,7 +506,7 @@ Create empty validation
     Click home button
 
 Create empty path
-    [Documentation]    Create an empty path with a title and instructions. Defaults to "Free Exploration Path"; pass ${path_type} to create one of the other path types instead (e.g. "Auto-Triggered path", "Guided Path").
+    [Documentation]    Create an empty path with a title and instructions. Defaults to "Free Exploration Path"; pass ${path_type} to create one of the other path types instead (e.g. "Auto-Triggered Path", "Guided Path").
     [Arguments]    ${title}=parcours numéro 1    ${instructions}=instruction relative au parcours numéro 1    ${path_type}=Free Exploration Path
     Create Path
     Select Path Type    ${path_type}
@@ -433,7 +517,9 @@ Create empty path
     Wait Until Element Is Visible    xpath=//div[h3[contains(@class, 'activity-card__title activity-card__title--large-light') and text()='${title}']]    15s
 
 Go Offline
-    [Documentation]    Set the browser to offline mode using Chrome DevTools Protocol (CDP)
+    [Documentation]    Set the browser to offline mode using Chrome DevTools Protocol (CDP). Chrome-only: on any other browser (see ${BROWSER}) this SKIPs the current test with an explicit reason instead of failing, since CDP does not exist there - tests that need it are tagged "chrome-only" (see SAFARI_COMPATIBILITY.md).
+    ${is_chrome}=    Browser Is Chrome
+    Skip If    not ${is_chrome}    Network emulation requires Chrome DevTools Protocol; not available on ${BROWSER}
     ${seleniumlib}    Get Library Instance    SeleniumLibrary
     VAR    ${webdriver}    ${seleniumlib.driver}
     # SetOffline
@@ -443,7 +529,9 @@ Go Offline
     Call Method    ${webdriver}    execute_cdp_cmd    Network.emulateNetworkConditions    ${conditions}
 
 Go Online
-    [Documentation]    Set the browser to online mode using Chrome DevTools Protocol (CDP)
+    [Documentation]    Set the browser to online mode using Chrome DevTools Protocol (CDP). Chrome-only: on any other browser (see ${BROWSER}) this SKIPs the current test with an explicit reason instead of failing, since CDP does not exist there - tests that need it are tagged "chrome-only" (see SAFARI_COMPATIBILITY.md).
+    ${is_chrome}=    Browser Is Chrome
+    Skip If    not ${is_chrome}    Network emulation requires Chrome DevTools Protocol; not available on ${BROWSER}
     ${seleniumlib}    Get Library Instance    SeleniumLibrary
     VAR    ${webdriver}    ${seleniumlib.driver}
     # SetOffline
@@ -453,8 +541,10 @@ Go Online
     Call Method    ${webdriver}    execute_cdp_cmd    Network.emulateNetworkConditions    ${conditions}
 
 Set Network Speed
-    [Documentation]    Throttle the network using Chrome DevTools Protocol (CDP), for testing behavior under a slow connection instead of going fully offline. Defaults roughly match Chrome DevTools' "Slow 3G" preset (2000ms latency, ~62.5 KB/s down/up). Call "Reset Network Speed" afterwards to remove the throttling.
+    [Documentation]    Throttle the network using Chrome DevTools Protocol (CDP), for testing behavior under a slow connection instead of going fully offline. Defaults roughly match Chrome DevTools' "Slow 3G" preset (2000ms latency, ~62.5 KB/s down/up). Call "Reset Network Speed" afterwards to remove the throttling. Chrome-only: on any other browser (see ${BROWSER}) this SKIPs the current test with an explicit reason instead of failing, since CDP does not exist there - tests that need it are tagged "chrome-only" (see SAFARI_COMPATIBILITY.md).
     [Arguments]    ${latency}=2000    ${download_throughput}=62500    ${upload_throughput}=62500
+    ${is_chrome}=    Browser Is Chrome
+    Skip If    not ${is_chrome}    Network emulation requires Chrome DevTools Protocol; not available on ${BROWSER}
     ${latency}=    Convert To Integer    ${latency}
     ${download_throughput}=    Convert To Integer    ${download_throughput}
     ${upload_throughput}=    Convert To Integer    ${upload_throughput}
@@ -464,7 +554,9 @@ Set Network Speed
     Call Method    ${webdriver}    execute_cdp_cmd    Network.emulateNetworkConditions    ${conditions}
 
 Reset Network Speed
-    [Documentation]    Remove any network throttling applied via "Set Network Speed" or "Go Offline", restoring a normal, unthrottled connection. A throughput of -1 tells CDP not to limit that direction at all.
+    [Documentation]    Remove any network throttling applied via "Set Network Speed" or "Go Offline", restoring a normal, unthrottled connection. A throughput of -1 tells CDP not to limit that direction at all. Chrome-only: on any other browser (see ${BROWSER}) this SKIPs the current test with an explicit reason instead of failing, since CDP does not exist there - tests that need it are tagged "chrome-only" (see SAFARI_COMPATIBILITY.md).
+    ${is_chrome}=    Browser Is Chrome
+    Skip If    not ${is_chrome}    Network emulation requires Chrome DevTools Protocol; not available on ${BROWSER}
     ${seleniumlib}=    Get Library Instance    SeleniumLibrary
     VAR    ${webdriver}    ${seleniumlib.driver}
     ${conditions}=    Create Dictionary    offline=${False}    latency=${0}    downloadThroughput=${-1}    uploadThroughput=${-1}
@@ -504,7 +596,7 @@ Click Activity Card
     Click Element    xpath=//div[h3[contains(@class, 'activity-card') and text()='${activity_title}']]
 
 Add Activity to Path
-    [Documentation]    Add an activity to the path using the provided activity title. When ${path_title} is given, the drop target is scoped to that specific path's card, which matters when the account has more than one path visible on screen.
+    [Documentation]    Add an activity to the path using the provided activity title. When ${path_title} is given, the drop target is scoped to that specific path's card, which matters when the account has more than one path visible on screen. Safari: runs the same Selenium action chain (no JavaScript fallback) - UNVERIFIED there, since which events the app listens for (pointer/mouse vs HTML5 drag-and-drop) is not confirmed; callers are tagged "safari-unverified".
     [Arguments]    ${activity_title}    ${path_title}=${EMPTY}
     Wait Until Element Is Visible    xpath=//div[h3[contains(@class, 'activity-card') and text()='${activity_title}']]    15s
     Wait Until Keyword Succeeds    3x    2s    Click Activity Card    ${activity_title}
@@ -530,7 +622,7 @@ Click Activity Card By Id
     Click Element    ${card}
 
 Add Activity to Path By Id
-    [Documentation]    Add an activity to a path, both identified by their unique "data-id" rather than title text. Immune to duplicate or stale-data titles anywhere else on the page. The drag is started from the card's title-wrapper (not the full card) because Selenium's synthetic drag grabs the element's center point, and the full card's center can land on an action button (like/sync/menu) instead of empty space, silently breaking the drag. The drop itself is done as Mouse Down / Mouse Over / Sleep / Mouse Up instead of the single-shot "Drag And Drop" keyword, because the app needs a brief hover over the drop zone to register the dragover state before the mouse is released - "Drag And Drop" releases immediately after arriving, which is too fast for it to pick up.
+    [Documentation]    Add an activity to a path, both identified by their unique "data-id" rather than title text. Immune to duplicate or stale-data titles anywhere else on the page. The drag is started from the card's title-wrapper (not the full card) because Selenium's synthetic drag grabs the element's center point, and the full card's center can land on an action button (like/sync/menu) instead of empty space, silently breaking the drag. The drop itself is done as Mouse Down / Mouse Over / Sleep / Mouse Up instead of the single-shot "Drag And Drop" keyword, because the app needs a brief hover over the drop zone to register the dragover state before the mouse is released - "Drag And Drop" releases immediately after arriving, which is too fast for it to pick up. Safari: runs the same Selenium action chain (no JavaScript fallback) - UNVERIFIED there, since which events the app listens for (pointer/mouse vs HTML5 drag-and-drop) is not confirmed; callers are tagged "safari-unverified".
     [Arguments]    ${activity_id}    ${path_id}
     ${activity_card}=    Set Variable    xpath=//div[contains(@class, 'activity-card') and @data-id='${activity_id}']
     ${drag_source}=    Set Variable    ${activity_card}//div[contains(@class,'activity-card__title-wrapper')]
@@ -841,9 +933,7 @@ Create basic search and find activity
     Edit Activity Instructions    ${instructions}
     Click Element    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    Search and Find
     Sleep    2s
     Next button
     Sleep    2s
@@ -853,7 +943,7 @@ Create basic search and find activity
     Sleep    5s
 
 Create failed search and find activity
-    [Documentation]    Create a basic search and find activity with a title, instructions, use a photo and validate
+    [Documentation]    Create a basic search and find activity with a title, instructions, use a photo and validate Safari: runs the same Selenium action chain (no JavaScript fallback) - UNVERIFIED there, since which events the app listens for (pointer/mouse vs HTML5 drag-and-drop) is not confirmed; callers are tagged "safari-unverified".
     [Arguments]    ${title}    ${instructions}
     Create Activity
     Select Activity Type    Search and Find
@@ -889,10 +979,10 @@ Create basic pairs activity
     Sleep    2s
     Wait Until Element Is Visible    xpath=//span[contains(@class, ant-upload-btn)]    15s
     Click Element    xpath=//span[contains(@class, ant-upload-btn)]
-    Choose File   xpath=//input[@type='file']    ${EXECDIR}/assets/fakecamfeed_cortez.png
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/fakecamfeed_cortez.png
     Sleep    2s
     Click Element    xpath=//span[contains(@class, ant-upload-btn)]
-    Choose File   xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
+    Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
     Sleep    2s
     Next button
     Sleep    2s
@@ -910,9 +1000,7 @@ Create basic layers activity
     Edit Activity Instructions    ${instructions}
     Click Element    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    Information layers
     Sleep    2s
     Next button
     Sleep    2s
@@ -932,9 +1020,7 @@ Create basic layers activity without validation
     Edit Activity Instructions    ${instructions}
     Click Element    xpath=//button[contains(@class, 'ant-btn-primary') and contains(@class, 'editor__nav-button') and contains(@class, 'editor__nav-button--primary')]
     Sleep    2s
-    Snap the background
-    Sleep    2s
-    Validate the image
+    Provide Marker Image    Information layers
     Sleep    2s
     Next button
     Sleep    5s
@@ -960,7 +1046,7 @@ Furnish layers with content
         Sleep    2s
         Click Element    xpath=//h5[contains(@class, 'ant-typography') and text()='Click to edit...']
         Click Element    xpath=//button[contains(@class, 'ant-btn')]
-        Choose File   xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
+        Choose File Robust    xpath=//input[@type='file']    ${EXECDIR}/assets/cat.webp
         Wait Until Element Is Visible    xpath=//button[contains(@title, 'Expand Layers')]    15s
         Click Element    xpath=//button[contains(@title, 'Expand Layers')] 
         Sleep    2s

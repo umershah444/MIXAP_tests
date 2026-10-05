@@ -5,6 +5,7 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Tags    safari-unverified
 
 *** Test Cases ***
 The main tour auto-triggers on first Home visit and offers no default buttons

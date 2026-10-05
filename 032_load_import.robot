@@ -6,6 +6,7 @@ Library    Collections
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
 
 *** Variables ***
 ${sharecode}    None
@@ -13,6 +14,7 @@ ${sharecode}    None
 *** Test Cases ***
 Create 8 activities and share path
     [Documentation]    Uses a freshly signed-up, randomly-generated account instead of one of the shared test accounts, so this run doesn't add to their ever-growing history.
+    [Tags]    safari-unverified
     Open Web Application
     ${username1}=    Generate Random String    10    [LETTERS][NUMBERS]
     Set Suite Variable    ${username1}
@@ -59,6 +61,7 @@ Create 8 activities and share path
 
 Import activity with share code
     [Documentation]    Uses a second freshly signed-up, randomly-generated account instead of one of the shared test accounts, so this run doesn't add to their ever-growing history.
+    [Tags]    safari-unverified
     Open Web Application
     ${username2}=    Generate Random String    10    [LETTERS][NUMBERS]
     Sign Up    test_${username2}    test_${username2}@example.com    password123
@@ -71,6 +74,7 @@ Import activity with share code
 # launched below.
 Launch imported activity
     [Documentation]    Launches the imported activity, then cleans up both throwaway accounts: account 2 (current session) first, then account 1 - reopened and signed back into specifically because deleting the sharing account any earlier (before account 2 finished importing/launching) would risk invalidating the share code or the imported copy.
+    [Tags]    safari-unverified
     Click Element    xpath=//button[contains(@class, 'activity-card__title-arrow-button')]
     Sleep    2s
     Wait For Detection Or Log Miss
@@ -84,6 +88,7 @@ Launch imported activity
 
 Create 8 activities and share path - Slow 3G
     [Documentation]    Uses a freshly signed-up, randomly-generated account instead of one of the shared test accounts, so this run doesn't add to their ever-growing history.
+    [Tags]    chrome-only    safari-skip:cdp-network
     Open Web Application
     Set Network Speed
     ${username1}=    Generate Random String    10    [LETTERS][NUMBERS]
@@ -131,6 +136,7 @@ Create 8 activities and share path - Slow 3G
 
 Import activity with share code - Slow 3G
     [Documentation]    Uses a second freshly signed-up, randomly-generated account instead of one of the shared test accounts, so this run doesn't add to their ever-growing history.
+    [Tags]    chrome-only    safari-skip:cdp-network
     Open Web Application
     Set Network Speed
     ${username2}=    Generate Random String    10    [LETTERS][NUMBERS]
@@ -144,6 +150,7 @@ Import activity with share code - Slow 3G
 # launched below.
 Launch imported activity - Slow 3G
     [Documentation]    Launches the imported activity, then cleans up both throwaway accounts: account 2 (current session) first, then account 1 - reopened and signed back into specifically because deleting the sharing account any earlier (before account 2 finished importing/launching) would risk invalidating the share code or the imported copy.
+    [Tags]    chrome-only    safari-skip:cdp-state
     Click Element    xpath=//button[contains(@class, 'activity-card__title-arrow-button')]
     Sleep    2s
     Wait For Detection Or Log Miss

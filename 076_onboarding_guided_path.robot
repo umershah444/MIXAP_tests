@@ -5,6 +5,7 @@ Library    String
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Tags    safari-unverified
 
 *** Test Cases ***
 Selecting Guided Path for the first time starts its onboarding tour

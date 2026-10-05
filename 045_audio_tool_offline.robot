@@ -4,6 +4,8 @@ Library    OperatingSystem
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
+Test Tags    chrome-only    safari-skip:offline-suite
 
 *** Keywords ***
 Create Empty Augmented Activity For Audio Test - Offline
@@ -17,9 +19,7 @@ Create Empty Augmented Activity For Audio Test - Offline
     Edit Activity Title    Audio Tool Test
     Next button
     Sleep    2s
-    Snap the background
-    Sleep    5s
-    Validate the image
+    Provide Marker Image    Augmented activity    settle=5s
     Sleep    2s
     Next button
     Sleep    2s
@@ -53,7 +53,7 @@ Select the audio tool and upload a file
     Click Element    xpath=//button[contains(@title, 'Audio')]
     Sleep    2s
     Click Element    xpath=//div[contains(@class, 'auras__popbar')]
-    Choose File    id=basic_file    ${EXECDIR}/assets/moo1.wav
+    Choose File Robust    id=basic_file    ${EXECDIR}/assets/moo1.wav
     Sleep    2s
     Click Element    xpath=//div[contains(@class, 'auras__popbar')]
     Sleep    5s

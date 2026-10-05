@@ -3,42 +3,50 @@ Library    SeleniumLibrary
 Resource       ./ressources.robot
 
 Suite Teardown    Run Keyword And Ignore Error    Close All Browsers
+Test Setup    Skip Chrome-Only Test On Safari
 
 *** Test Cases ***
 open Application
+    [Tags]    safari-unverified
     Open Web Application
 
 Change to French
+    [Tags]    safari-unverified
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Français']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Français']
     Wait Until Element Contains    xpath=//body    Nouvelle activité    10s
 
 Change to Danish
+    [Tags]    safari-unverified
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Dansk']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Dansk']
     Wait Until Element Contains    xpath=//body    Ny aktivitet    10s
 
 Change to Greek
+    [Tags]    safari-unverified
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Ελληνικά']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Ελληνικά']
     Wait Until Element Contains    xpath=//body    Νέα δραστηριότητα    10s
 
 Change to Turkish
+    [Tags]    safari-unverified
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Türkçe']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Türkçe']
     Wait Until Element Contains    xpath=//body    Yeni etkinlik    10s
 
 Change to English
+    [Tags]    safari-unverified
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='English']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='English']
     Wait Until Element Contains    xpath=//body    New activity    10s
 
 Check filtering activities buttons
+    [Tags]    safari-unverified
     Create empty augmented activity    augmentation numéro 1
     Create empty augmented activity    augmentation numéro 2
     Create empty validation    validation numéro 1    instruction 1
@@ -58,40 +66,47 @@ Check filtering activities buttons
     Close Browser
 
 open Application - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-network
     Open Web Application
     Set Network Speed
 
 Change to French - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Français']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Français']
     Wait Until Element Contains    xpath=//body    Nouvelle activité    10s
 
 Change to Danish - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Dansk']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Dansk']
     Wait Until Element Contains    xpath=//body    Ny aktivitet    10s
 
 Change to Greek - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Ελληνικά']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Ελληνικά']
     Wait Until Element Contains    xpath=//body    Νέα δραστηριότητα    10s
 
 Change to Turkish - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Türkçe']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='Türkçe']
     Wait Until Element Contains    xpath=//body    Yeni etkinlik    10s
 
 Change to English - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Open drawer
     Wait Until Element Is Visible    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='English']    10s
     Click Element    xpath=//div[contains(@class, 'ant-space-item')]//span[text()='English']
     Wait Until Element Contains    xpath=//body    New activity    10s
 
 Check filtering activities buttons - Slow 3G
+    [Tags]    chrome-only    safari-skip:cdp-state
     Create empty augmented activity    augmentation numéro 1 Slow3G
     Create empty augmented activity    augmentation numéro 2 Slow3G
     Create empty validation    validation numéro 1 Slow3G    instruction 1
